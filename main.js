@@ -1,4 +1,4 @@
-const invSbox = [
+const invSBox = [
     0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
     0x7C, 0xE3, 0x39, 0x82, 0x9B, 0x2F, 0xFF, 0x87, 0x34, 0x8E, 0x43, 0x44, 0xC4, 0xDE, 0xE9, 0xCB,
     0x54, 0x7B, 0x94, 0x32, 0xA6, 0xC2, 0x23, 0x3D, 0xEE, 0x4C, 0x95, 0x0B, 0x42, 0xFA, 0xC3, 0x4E,
@@ -68,6 +68,18 @@ const Rcon = [
 function textToHex(text) {
     return text.split('').map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join('');
 }
+function hexToText(hex) {
+    const bytes = [];
+    
+    // Convert each pair of hex digits to a byte
+    for (let i = 0; i < hex.length; i += 2) {
+        const byte = parseInt(hex.substr(i, 2), 16);
+        bytes.push(byte);
+    }
+
+    // Convert bytes to characters and join to form the final string
+    return bytes.map(byte => String.fromCharCode(byte)).join('');
+}
 
 function hexToBytes(hex) {
     const bytes = [];
@@ -85,7 +97,12 @@ function subBytes(state) {
     return state.map(byte => sBox[byte]);
 }
 
-function shiftRows(state) {
+function inverseSubBytes(state) {
+    return state.map(byte => invSBox[byte]);
+}
+
+
+function inverseShiftRows(state) {
     const temp = Array.from(state);
 
     // 0  5  8 12
@@ -93,6 +110,49 @@ function shiftRows(state) {
     // 2  6 10 14
     // 3  7 11 15
 
+    temp[1] = state[13];
+    temp[5] = state[1];
+    temp[9] = state[5];
+    temp[13] = state[9];
+
+    temp[2] = state[10];
+    temp[6] = state[14];
+    temp[10] = state[2];
+    temp[14] = state[6];
+
+    temp[3] = state[7];
+    temp[7] = state[11];
+    temp[11] = state[15];
+    temp[15] = state[3];
+
+    return temp;
+}
+
+function inverseMixColumns(state) {
+    const mixed = new Array(16);
+    for (let i = 0; i < 4; i++) {
+        const col = [
+            state[i * 4],
+            state[i * 4 + 1],
+            state[i * 4 + 2],
+            state[i * 4 + 3],
+        ];
+
+        mixed[i * 4] = multiply(0x0e, col[0]) ^ multiply(0x0b, col[1]) ^ multiply(0x0d, col[2]) ^ multiply(0x09, col[3]);
+        mixed[i * 4 + 1] = multiply(0x09, col[0]) ^ multiply(0x0e, col[1]) ^ multiply(0x0b, col[2]) ^ multiply(0x0d, col[3]);
+        mixed[i * 4 + 2] = multiply(0x0d, col[0]) ^ multiply(0x09, col[1]) ^ multiply(0x0e, col[2]) ^ multiply(0x0b, col[3]);
+        mixed[i * 4 + 3] = multiply(0x0b, col[0]) ^ multiply(0x0d, col[1]) ^ multiply(0x09, col[2]) ^ multiply(0x0e, col[3]);
+    }
+    return mixed;
+}
+
+function shiftRows(state) {
+    const temp = Array.from(state);
+
+    // 0  5  8 12
+    // 1  5  9 13
+    // 2  6 10 14
+    // 3  7 11 15
     temp[1] = state[5];
     temp[5] = state[9];
     temp[9] = state[13];
@@ -110,6 +170,8 @@ function shiftRows(state) {
 
     return temp;
 }
+
+
 
 function mixColumns(state) {
     const mixed = new Array(16);
@@ -167,7 +229,7 @@ function keyExpansion(key) {
             roundKeys[index + 1] = roundKeys[(i - 1) * 16 + j * 4 + 1] ^ newKey[1];
             roundKeys[index + 2] = roundKeys[(i - 1) * 16 + j * 4 + 2] ^ newKey[2];
             roundKeys[index + 3] = roundKeys[(i - 1) * 16 + j * 4 + 3] ^ newKey[3];
-            
+
             // Update newKey for the next word
             newKey[0] = roundKeys[index];
             newKey[1] = roundKeys[index + 1];
@@ -204,7 +266,6 @@ function aesEncrypt(plainText, plainKey) {
 
     blocks.forEach((block, blockIndex) => {
         console.log(`\nProcessing block ${blockIndex + 1}:`);
-
         const state = hexToBytes(block);
         let currentState = state;
 
@@ -243,6 +304,77 @@ function aesEncrypt(plainText, plainKey) {
     return ciphertext;
 }
 
+function aesDecrypt(ciphertext, plainKey) {
+    const extendedKey = generateHexKey(plainKey);
+    const hexKey = textToHex(extendedKey);
+    console.log("Key: " + hexKey + "\n" + "Regular key: " + extendedKey);
+    const key = hexToBytes(hexKey);
+
+    // Generate round keys
+    const roundKeys = keyExpansion(key);
+    const roundKeysHex = roundKeys.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const formattedRoundKeysHex = roundKeysHex.match(/.{1,8}/g).join(' ');
+    console.log("Full Round Keys: " + formattedRoundKeysHex);
+
+    const rounds = 10;
+
+    // Split the input into 16-byte chunks
+    const hexInput = textToHex(ciphertext);
+    const blocks = [];
+    for (let i = 0; i < hexInput.length; i += 32) {
+        blocks.push(hexInput.slice(i, i + 32).padEnd(32, '0'));
+    }
+
+    let plainText = [];
+
+    blocks.forEach((block, blockIndex) => {
+        console.log(`\nProcessing block ${blockIndex + 1}:`);
+        const state = hexToBytes(block);
+        let currentState = state;
+
+
+        const usedSubkey = roundKeys.slice(rounds * 16, (rounds+1) * 16);
+        console.log("Used Subkey:", bytesToHex(usedSubkey));
+        currentState = xorBytes(currentState, usedSubkey);
+        console.log("After Mix with Key:", bytesToHex(currentState));
+        console.log("Input to Round 10:", bytesToHex(currentState));
+
+        // Rounds
+        for (let round = 1; round <= rounds; round++) {
+            console.log(`\n-= Round ${round} =-`);
+
+            const afterPermutation = inverseShiftRows(currentState);
+            console.log("After Permutation (ShiftRows):", bytesToHex(afterPermutation));
+
+            const afterSBox = inverseSubBytes(afterPermutation);
+            console.log("After S-Box:", bytesToHex(afterSBox));
+            
+            const usedSubkey = roundKeys.slice((rounds-round) * 16, (rounds-round+1) * 16);
+            console.log("Used Subkey:", bytesToHex(usedSubkey));
+            currentState = xorBytes(afterSBox, usedSubkey);
+            console.log("After Mix with Key:", bytesToHex(currentState));
+            
+            // After MixColumns (only for rounds 1-9)
+            let afterMixColumns;
+            if (round < rounds) {
+                afterMixColumns = inverseMixColumns(currentState);
+                console.log("After MixColumns:", bytesToHex(afterMixColumns));
+            } else {
+                afterMixColumns = currentState; // No mix in the final round
+            }
+
+        }
+
+        plainText = plainText.concat(currentState);
+    });
+
+    return plainText;
+}
+
+
+
+
+
 function bytesToHex(bytes) {
     return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -251,9 +383,17 @@ function generateHexKey(input) {
     return input.padEnd(16, '0').slice(0, 16);
 }
 
+
+
+
+
 // Testing
 const plainText = "If you can read this.. Hell yeah it bloody works! :D";
 const plainKey = "Test Key";
 const ciphertext = aesEncrypt(plainText, plainKey);
 const hexCiphertext = bytesToHex(ciphertext);
 console.log("\nCiphertext (Hex):", hexCiphertext);
+const encrytedText = hexToText(hexCiphertext);
+const decryptedText = aesDecrypt(encrytedText,plainKey);
+console.log("\nHexDecrypted",bytesToHex(decryptedText))
+console.log("\nDecrypted Text:",   hexToText(bytesToHex(decryptedText)));
