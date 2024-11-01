@@ -161,6 +161,55 @@ function bytesToHex(bytes) {
   return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function addPaddingToByteArray(byteArray, blockSize) {
+    // Ensure byteArray is an array
+    if (!Array.isArray(byteArray)) {
+        throw new TypeError('Expected byteArray to be an array');
+    }
+
+    const padding = blockSize - (byteArray.length % blockSize);
+    const paddedArray = byteArray.slice(); // Create a copy of the original array
+
+    // If the byte array is already a multiple of the block size, add a full block of padding
+    if (padding === 0) {
+        paddedArray.push(blockSize); // Add the first padding byte
+        for (let i = 1; i < blockSize; i++) {
+            paddedArray.push(blockSize); // Fill the rest with the same value
+        }
+    } else {
+        for (let i = 0; i < padding; i++) {
+            paddedArray.push(padding); // Add padding bytes
+        }
+    }
+
+    return paddedArray;
+}
+
+function removePaddingFromByteArray(paddedArray) {
+    // Ensure paddedArray is an array
+    if (!Array.isArray(paddedArray)) {
+        throw new TypeError('Expected paddedArray to be an array');
+    }
+
+    const length = paddedArray.length;
+    if (length === 0) return paddedArray; // Handle empty array case
+
+    const paddingValue = paddedArray[length - 1]; // Get the value of the last byte
+    const paddingLength = paddingValue > 0 && paddingValue <= length ? paddingValue : 0;
+
+    // Check if the last bytes match the padding length
+    for (let i = 1; i < paddingLength; i++) {
+        if (paddedArray[length - 1 - i] !== paddingValue) {
+            throw new Error('Invalid padding');
+        }
+    }
+
+    // Return the original array without padding
+    return paddedArray.slice(0, length - paddingLength);
+}
+
+
+
 function generateHexKey(input) {
   return input.padEnd(16, "0").slice(0, 16);
 }
@@ -268,6 +317,34 @@ function keyExpansion(key) {
   return roundKeys;
 }
 
+function setupPlainText(plainText) {
+  const paddedPlainText = applyPadding(plainText, 16);
+
+  const hexInput = textToHex(paddedPlainText);
+  const bytetext = hexToBytes(hexInput);
+  return bytetext;
+}
+
+function reverseSetupPlainText(bytetext) {
+  // Convert byte array back to hex string
+  const hexString = bytesToHex(bytetext);
+
+  // Convert hex string back to plain text
+  const unpaddedPlainText = hexToText(hexString);
+
+  // Remove padding
+  const originalPlainText = removePadding(unpaddedPlainText);
+
+  return originalPlainText;
+}
+
+// Helper function to remove padding
+function removePadding(text) {
+  const paddingLength = text.charCodeAt(text.length - 1);
+  return text.slice(0, text.length - paddingLength);
+}
+
+
 // PKCS7 padding
 function applyPadding(data, blockSize) {
   const padding = blockSize - (data.length % blockSize);
@@ -283,6 +360,7 @@ function removePadding(data) {
 }
 
 function aesEncrypt(plainText, plainKey, ivHex) {
+  //binary
   const extendedKey = generateHexKey(plainKey);
   const hexKey = textToHex(extendedKey);
   console.log("Key: " + hexKey + "\n" + "Regular key: " + extendedKey);
@@ -298,14 +376,11 @@ function aesEncrypt(plainText, plainKey, ivHex) {
 
   const rounds = 10;
 
-  const paddedPlainText = applyPadding(plainText, 16);
-
-  // Split the input into 16-byte chunks
-  const hexInput = textToHex(paddedPlainText);
   const blocks = [];
-  for (let i = 0; i < hexInput.length; i += 32) {
-    blocks.push(hexInput.slice(i, i + 32).padEnd(32, "0"));
+  for (let i = 0; i < plainText.length; i += 16) {
+    blocks.push(plainText.slice(i, i + 16));
   }
+  console.log("Blocks: ", blocks);
 
   let ciphertext = [];
   let previousBlock = hexToBytes(ivHex);
@@ -315,7 +390,7 @@ function aesEncrypt(plainText, plainKey, ivHex) {
     console.log("Previous Block:", bytesToHex(previousBlock));
     console.log("Current Block:", block);
 
-    let state = hexToBytes(block);
+    let state = block;
     state = xorBytes(state, previousBlock);
     let currentState = state;
 
@@ -333,7 +408,10 @@ function aesEncrypt(plainText, plainKey, ivHex) {
       console.log("After S-Box:", bytesToHex(afterSBox));
 
       const afterPermutation = shiftRows(afterSBox);
-      console.log("After Permutation (ShiftRows):", bytesToHex(afterPermutation));
+      console.log(
+        "After Permutation (ShiftRows):",
+        bytesToHex(afterPermutation)
+      );
 
       // After MixColumns (only for rounds 1-9)
       let afterMixColumns;
@@ -360,6 +438,7 @@ function aesEncrypt(plainText, plainKey, ivHex) {
 }
 
 function aesDecrypt(ciphertext, plainKey, ivHex) {
+  //ciphertext is the binary
   const extendedKey = generateHexKey(plainKey);
   const hexKey = textToHex(extendedKey);
   const key = hexToBytes(hexKey);
@@ -367,13 +446,14 @@ function aesDecrypt(ciphertext, plainKey, ivHex) {
   const roundKeys = keyExpansion(key);
 
   let previousBlock = hexToBytes(ivHex);
-  let plaintext = [];
+  var plaintext = [];
 
   // Step 4: Split ciphertext into 16-byte blocks
   const blocks = [];
   for (let i = 0; i < ciphertext.length; i += 16) {
     blocks.push(ciphertext.slice(i, i + 16));
   }
+  console.log("Blocks:", blocks);
 
   // Process blocks from last to first
   for (let blockIndex = blocks.length - 1; blockIndex >= 0; blockIndex--) {
@@ -429,26 +509,17 @@ function aesDecrypt(ciphertext, plainKey, ivHex) {
 
     plaintext = state.concat(plaintext);
   }
-  // Convert bytes to hex for final output
-  let decryptedHex = bytesToHex(plaintext);
-  console.log("\nDecrypted Hex:", decryptedHex);
-
-  // Convert hex to string and remove padding
-  let decryptedText = hexToText(decryptedHex);
-  console.log("\nDecrypted Text (Before Removing Padding):", decryptedText);
-
-  decryptedText = removePadding(decryptedText);
-  console.log("\nDecrypted Text:", decryptedText);
-
-  return decryptedText;
+  
+  console.log("Plaintext:", plaintext);
+  return plaintext;
 }
 
-// Testing
+//Testing
 const plainText = "Sample text encrypted!";
 const plainKey = "Test Key";
 const ivHex = "000102030405060708090a0b0c0d0e0f"; //Adding this took 5h where I was chasing a bug that never existed.. thank you online tools.
-const ciphertext = aesEncrypt(plainText, plainKey, ivHex);
-console.log("\nCiphertext (Hex):", bytesToHex(ciphertext));
+const ciphertext = aesEncrypt(setupPlainText(plainText), plainKey, ivHex);
+console.log("\nCiphertext (Hex):", ciphertext);
 
 const decryptedText = aesDecrypt(ciphertext, plainKey, ivHex);
-console.log("\nDecrypted Text:", decryptedText);
+console.log("\nDecrypted Text:",reverseSetupPlainText(decryptedText));
