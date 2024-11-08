@@ -171,10 +171,11 @@
             // Convert the encrypted byte array to a Blob
             var blob = new Blob([new Uint8Array(outputFileArray)], { type: "application/octet-stream" });
 
+                console.log(file);
             // Create a link element
             var link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = "encrypted_file.bin";
+            link.download = file.name+".enc";
 
             // Append the link to the body
             document.body.appendChild(link);
@@ -217,7 +218,7 @@
                 // Create a link element
                 var link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
-                link.download = "decrypted_file.bin.dec";
+                link.download = file.name.replace(".enc", "");
 
                 // Append the link to the body
                 document.body.appendChild(link);
