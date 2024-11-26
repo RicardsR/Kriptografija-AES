@@ -69,7 +69,7 @@ async function aesFile(encryptingToggle) {
 
         const buffer = await file.arrayBuffer();
         const data = Array.from(new Uint8Array(buffer));
-        const processed = encryptingToggle ? aesEncrypt(data, key, iv, verbose) : aesDecrypt(data, key, iv, verbose);
+        const processed = encryptingToggle ? aesEncrypt(pad(data,16), key, iv, verbose) : unpad(aesDecrypt(data, key, iv, verbose));
 
         const blob = new Blob([new Uint8Array(processed)]);
         const link = document.createElement("a");
